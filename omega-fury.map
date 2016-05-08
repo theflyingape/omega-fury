@@ -1,0 +1,131 @@
+Modules list:
+-------------
+omega-fury.o:
+    CODE              Offs = 000000   Size = 0025D3
+    RODATA            Offs = 000000   Size = 000FF1
+    BASIC             Offs = 000000   Size = 00000E
+    STARTUP           Offs = 000000   Size = 0000A6
+    SPLASH            Offs = 000000   Size = 000400
+    SSSBUF            Offs = 000000   Size = 00028A
+    MYCHAR            Offs = 000000   Size = 000328
+VIC-SSS-MMX.o:
+    SPRITE            Offs = 000000   Size = 000741
+
+
+Segment list:
+-------------
+Name                  Start   End     Size
+--------------------------------------------
+BASIC                 0011FF  00120C  00000E
+STARTUP               00120D  0012B2  0000A6
+SPLASH                001400  0017FF  000400
+SSSBUF                001800  001A89  00028A
+MYCHAR                001C00  001F27  000328
+CODE                  002000  0045D2  0025D3
+SPRITE                0045D3  004D13  000741
+RODATA                004D14  005D04  000FF1
+
+
+Exports list:
+-------------
+RESTART                   002000 RLA    SPRITEBUFH                001988 RLA    
+SPRITEBUFL                001997 RLA    SPRITEC1H                 0019A6 RLA    
+SPRITEC1L                 0019B5 RLA    SPRITEC2H                 0019C4 RLA    
+SPRITEC2L                 0019D3 RLA    SPRITECOL                 0019E2 RLA    
+SPRITEDEF                 0019F1 RLA    SPRITEH                   001A00 RLA    
+SPRITEIMGH                001A0F RLA    SPRITEIMGL                001A1E RLA    
+SPRITEX                   001A2D RLA    SPRITEY                   001A3C RLA    
+SPRITEZ                   001A4B RLA    SSSANIM                   0049D9 RLA    
+SSSBUF                    001800 RLA    SSSCELL                   004CFF RLA    
+SSSCLEAR                  004682 RLA    SSSCREATE                 0048E6 RLA    
+SSSFFLIP                  0047E6 RLA    SSSFLIP                   0047F1 RLA    
+SSSINIT                   0045D3 RLA    SSSIRQ                    004657 RLA    
+SSSMOVEXY                 0049EB RLA    SSSPEEKS                  00477A RLA    
+SSSPEEKXY                 004780 RLA    SSSPLOT                   0046A5 RLA    
+SSSPLOTS                  0046AF RLA    SSSPOKE                   0047B2 RLA    
+SSSPRINT                  0046E8 RLA    SSSPRINTS                 004734 RLA    
+SSSREFRESH                004A00 RLA    SSSUSE                    004998 RLA    
+sss                       001A5A RLA    sssALLOC                  004D14 RLA    
+sssCOLS                   004D34 RLA    sssROWS                   004D24 RLA    
+
+
+
+Imports list:
+-------------
+RESTART (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.s(510)
+SPRITEBUFH (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(98)
+SPRITEBUFL (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(99)
+SPRITEC1H (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(100)
+SPRITEC1L (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(101)
+SPRITEC2H (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(102)
+SPRITEC2L (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(103)
+SPRITECOL (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(104)
+SPRITEDEF (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(107)
+SPRITEH (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(116)
+SPRITEIMGH (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(117)
+SPRITEIMGL (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(118)
+SPRITEX (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(119)
+SPRITEY (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(120)
+SPRITEZ (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(121)
+SSSANIM (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(167)
+SSSBUF (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(96)
+SSSCELL (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(157)
+SSSCLEAR (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(158)
+SSSCREATE (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(165)
+SSSFFLIP (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(171)
+SSSFLIP (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(172)
+SSSINIT (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(155)
+SSSIRQ (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(156)
+SSSMOVEXY (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(168)
+SSSPEEKS (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(180)
+SSSPEEKXY (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(163)
+SSSPLOT (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(159)
+SSSPLOTS (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(179)
+SSSPOKE (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(164)
+SSSPRINT (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(160)
+SSSPRINTS (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(161)
+SSSREFRESH (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(170)
+SSSUSE (VIC-SSS-MMX.o):
+    omega-fury.o              VIC-SSS-MMX.h(166)
+sss (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(129)
+sssALLOC (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(130)
+sssCOLS (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(131)
+sssROWS (omega-fury.o):
+    VIC-SSS-MMX.o             VIC-SSS-MMX.h(132)
+

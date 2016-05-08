@@ -1,0 +1,1694 @@
+ca65 V2.13.2 - (C) Copyright 1998-2005 Ullrich von Bassewitz
+Main file   : VIC-SSS-MMX.s
+Current file: VIC-SSS-MMX.s
+
+000000r 1               ;*********************************************************************
+000000r 1               ; Commodore VIC 20 Software Sprite Stack - MMX Edition
+000000r 1               ; last updated: 30-Oct-2011
+000000r 1               ; written by Robert Hurst <robert@hurst-ri.us>
+000000r 1               ; with contributions from:
+000000r 1               ; Matt Dawson <matsondawson@gmail.com>
+000000r 1               ;*********************************************************************
+000000r 1               
+000000r 1               		.fileopt author,	"Robert Hurst"
+000000r 1                       .fileopt comment,	"Software Sprite Stack"
+000000r 1                       .fileopt compiler,	"VIC 20 ASSEMBLER"
+000000r 1               
+000000r 1               
+000000r 1               ;*********************************************************************
+000000r 1               ; To assemble this source using cc65.org project:
+000000r 1               ;	ca65.exe --cpu 6502 --listing VIC-SSS-MMX.s
+000000r 1               ; Then link it into your project:
+000000r 1               ;   ld65.exe -C yourlinker.cfg -o yourgame.prg yourgame.o VIC-SSS-MMX.o
+000000r 1               ;
+000000r 1               ; See the various .bat files used for working examples.
+000000r 1               ;
+000000r 1               		.include "VIC-SSS-MMX.h"
+000000r 2               ;*********************************************************************
+000000r 2               ; Commodore VIC 20 Software Sprite Stack - MMX Edition
+000000r 2               ; written by Robert Hurst <robert@hurst-ri.us>
+000000r 2               ; last updated: 30-Oct-2011
+000000r 2               ;
+000000r 2               ; === IMPORTANT ===
+000000r 2               ; required symbols you need to define for your game:
+000000r 2               ;
+000000r 2               ;SPRITEDEF4	= $10		; un-comment this for "repeating" flag usage
+000000r 2               ;SPRITEDEF5	= $20		; un-comment this for "ghost" flag usage
+000000r 2               ;SPRITEDEF6	= $40		; un-comment this for "collision" flag usage
+000000r 2               SPRITEWIDE	= 1			; comment this out to skip 16-bit wide sprites
+000000r 2               SPRITEMAX	= 15		; reserves this many SPRITE registers (1-?)
+000000r 2               SSSNULL		= $A0		; your character used for a blank background
+000000r 2               
+000000r 2               ;*********************************************************************
+000000r 2               ; some pertinent VIC 20 symbols
+000000r 2               ;
+000000r 2               RNDSEED		= $8B		; -$8F: BASIC RND seed value
+000000r 2               JIFFYH		= $A0		; jiffy clock high
+000000r 2               JIFFYM		= $A1		; jiffy clock med
+000000r 2               JIFFYL		= $A2		; jiffy clock low
+000000r 2               DATANEXT	= $A6		; DATASETTE pointer (0-191)
+000000r 2               KEYCHARS	= $C6		; number of characters in KEYBUF (0-10)
+000000r 2               RVSFLAG		= $C7		; character reverse flag
+000000r 2               PLAYROWS	= $C8		; current screen row length (16-24)
+000000r 2               CURSOR		= $CC		; cursor enable (0=flash)
+000000r 2               CRSRCHAR	= $CE		; character under cursor
+000000r 2               SCRNLINE	= $D1		; pointer to cursor's screen line
+000000r 2               CRSRCOL		= $D3		; position of cursor on screen line
+000000r 2               PLAYCOLS	= $D5		; current screen line length (16-24)
+000000r 2               CRSRROW		= $D6		; screen row where cursor is
+000000r 2               COLORLINE	= $F3		; pointer to cursor's color line
+000000r 2               INPUT		= $0200		; -$0258: 89-character BASIC INPUT buffer
+000000r 2               KEYBUF		= $0277		; -$0280: 10-character keyboard buffer
+000000r 2               COLORCODE	= $0286		; current cursor color
+000000r 2               CRSRCOLOR	= $0287		; color under cursor
+000000r 2               SCRNPAGE	= $0288		; active screen memory page (unexpanded = $1E)
+000000r 2               SHIFTMODE	= $0291		; 0=allow, 128=locked
+000000r 2               SCROLLFLAG	= $0292		; auto scrolldown flag
+000000r 2               ACOPY		= $030C		; temp storage for A register
+000000r 2               XCOPY		= $030D		; temp storage for X register
+000000r 2               YCOPY		= $030E		; temp storage for Y register
+000000r 2               DATASETTE	= $033C		; -$03FB: 192-byte tape input buffer
+000000r 2               MASK		= $8270		; ROM character $40 - Shift-M (\)
+000000r 2               VIC			= $9000		; start of Video Interface Chip registers
+000000r 2               MACHINE		= $EDE4		; NTSC=$05, PAL=$0C
+000000r 2               STOPKEY		= $F770		; check for STOP key pressed
+000000r 2               RESET		= $FD22		; warm startup
+000000r 2               CHROUT		= $FFD2		; print character with cursor translation
+000000r 2               GETIN		= $FFE4		; get a character from keyboard queue
+000000r 2               
+000000r 2               ;*********************************************************************
+000000r 2               ; volatile VIC-SSS symbols
+000000r 2               ;
+000000r 2               VECTORBG	= $01		; sprite temp pointer to an image source
+000000r 2               DIRTYLINE2	= $59		; -$70: 24 screen rows for last dirty column +1
+000000r 2               NEWDIRT		= $BF		; bit 7=VIDEO1, 6=VIDEO2, 5=PLAYFIELD, 4=STATIC
+000000r 2               DIRTYLINE	= $D9		; -$F0: 24 screen rows for starting dirty column
+000000r 2               DIRTMAP		= $F1		; pointer to PLAYCOLOR for dirty-bit updates
+000000r 2               VECTORFG	= $F7		; sprite temp pointer to an image target
+000000r 2               VECTOR1		= $F9		; sprite temp pointer
+000000r 2               VECTOR2		= $FB		; sprite temp pointer
+000000r 2               VECTOR3		= $FD		; sprite temp pointer
+000000r 2               FPS			= $0285		; number of VIC re-directions every 64-jiffies
+000000r 2               PENDING		= $0293		; next video page: $10 or $12
+000000r 2               ACTUAL		= $0294		; save VIC startup video page
+000000r 2               VSYNC		= $0295		; set when waiting for vertical sync(s)
+000000r 2               VSYNC2		= $0296		; frames skipped
+000000r 2               VCOUNT		= $0297		; current SSSFLIP count
+000000r 2               SSSCLIPX	= $0298		; pixels to right border: 8 * (PLAYCOLS + 2)
+000000r 2               SSSCLIPY	= $0299		; pixels to bottom border: 8 * (PLAYROWS + 2)
+000000r 2               R0			= $029A		; unused temporary register
+000000r 2               R1			= $029B		; unused temporary register
+000000r 2               R2			= $029C		; unused temporary register
+000000r 2               R3			= $029D		; unused temporary register
+000000r 2               R4			= $029E		; unused temporary register
+000000r 2               
+000000r 2               ;*********************************************************************
+000000r 2               ; FRAME REGISTERS
+000000r 2               ;
+000000r 2               VICFRAME1	= $1000		; first video buffer
+000000r 2               VICCOLOR1	= $9400		; first color buffer
+000000r 2               VICFRAME2	= $1200		; second video buffer
+000000r 2               VICCOLOR2	= $9600		; second color buffer
+000000r 2               PLAYFIELD	= $1400		; write-pending screen buffer
+000000r 2               PLAYCOLOR	= $1600		; write-pending color buffer (bits 0-3)
+000000r 2               						; bit 4 = static cell bit, sprites go behind
+000000r 2               						; bit 5 = dirty bit for pending page
+000000r 2               						; bit 6 = dirty bit for video page 2 only
+000000r 2               						; bit 7 = dirty bit for video page 1 only
+000000r 2               
+000000r 2               ;*********************************************************************
+000000r 2               ; SPRITE REGISTERS
+000000r 2               ;
+000000r 2               .global SSSBUF			; defaults to $1800, but can be relocated by linker
+000000r 2               .global SPRITEBACK		; character code this sprite is in collision with
+000000r 2               .global	SPRITEBUFH		; pointer within sprite image buffer @ $1800 - $19FF
+000000r 2               .global	SPRITEBUFL
+000000r 2               .global	SPRITEC1H		; pointer within sprite display character pool
+000000r 2               .global	SPRITEC1L
+000000r 2               .global SPRITEC2H		; pointer within sprite display character pool
+000000r 2               .global SPRITEC2L
+000000r 2               .global	SPRITECOL		; 4-bit VIC color code
+000000r 2               .global SPRITECX		; sprite collision X-coord
+000000r 2               .global SPRITECY		; sprite collision Y-coord
+000000r 2               .global	SPRITEDEF		; matrix definition:
+000000r 2               						; bit 0: height		0 = 8px; 1 = 16px
+000000r 2               						; bit 1: width		0 = 8px; 1 = 16px
+000000r 2               						; bit 2: float Y	0=fixed cell; 1=vertical float
+000000r 2               						; bit 3: float X	0=fixed cell; 1=horizontal float
+000000r 2               						; bit 4: repeat		0=independent; 1=re-use previous
+000000r 2               						; bit 5: ghost		0=merge image; 1=invert image
+000000r 2               						; bit 6: collision	0=ignore; 1=detect
+000000r 2               						; bit 7: enabled	0=invisible; 1=visible
+000000r 2               .global	SPRITEH			; number of raster lines (1-16)
+000000r 2               .global	SPRITEIMGH		; pointer to source graphic for rendering at 0,0
+000000r 2               .global	SPRITEIMGL
+000000r 2               .global	SPRITEX			; horizontal pixel coordinate, visible >0 - <SSSCLIPX
+000000r 2               .global	SPRITEY			; vertical pixel coordinate, visible >0 - <SSSCLIPY
+000000r 2               .global	SPRITEZ			; bit 0: last rendered (0 = SPRITEC1; 1 = SPRITEC2)
+000000r 2               						; bit 1: fast copy (0 = merge; 1 = copy)
+000000r 2               						; bit 3: sprite-pixel collision with a non-static cell
+000000r 2                                       ; bit 4: foreground clipped flag
+000000r 2                                       ; bit 5: background is all SSSNULLs
+000000r 2               						; bit 6: copy/merge into alternate sprite char pool
+000000r 2               						; bit 7: copy/shift sprite image into its buffer
+000000r 2               ;--- above registers repeat for each sprite allocated ---
+000000r 2               .global sss				; screen row index -- computed by PLAYCOLS
+000000r 2               .global	sssALLOC		; table of sprite sizes (in custom characters)
+000000r 2               .global	sssCOLS			; sprite size in columns: 1, 2, 3
+000000r 2               .global	sssROWS			; sprite size in rows: 1, 2, 3
+000000r 2               ;--- above registers need storage assigned
+000000r 2               sssNUM		= $90		; current sprite # (0-1)
+000000r 2               sssX		= $92		; current sprite width: 0=8w, 1=16w, 2=24w
+000000r 2               sssY		= $93		; current sprite height: 0=8h, 1=16h, 2=24h
+000000r 2               sssBYTES	= $94		; number of bytes this sprite occupies
+000000r 2               sssNEXT		= $95		; offset to adjacent character
+000000r 2               sssCHAR		= $96		; next custom character to use on PENDING frame
+000000r 2               sssDX		= $97		; delta X counter
+000000r 2               sssDY		= $98		; delta Y counter
+000000r 2               sssLINE		= $9A		; current sprite make line: 0, 8, 16
+000000r 2               sssLINENUM	= $9B		; current sprite line countdown
+000000r 2               sssROR1		= $9C		; bit shift register column #1
+000000r 2               sssROR2		= $9D		; bit shift register column #2
+000000r 2               .ifdef SPRITEWIDE
+000000r 2               sssROR3		= $9E		; bit shift register column #3
+000000r 2               .endif
+000000r 2               sssXFER		= $9F		; transfer to custom character counter
+000000r 2               SPRITES		= $B7		; number of active sprite registers (0 - SPRITEMAX)
+000000r 2               
+000000r 2               ;*********************************************************************
+000000r 2               ; Common API entry points
+000000r 2               ;
+000000r 2               .global	SSSINIT			; must be called first
+000000r 2               .global	SSSIRQ			; necessary only if video flip timing is required
+000000r 2               .global	SSSCELL
+000000r 2               .global	SSSCLEAR
+000000r 2               .global	SSSPLOT
+000000r 2               .global	SSSPRINT
+000000r 2               .global	SSSPRINTS
+000000r 2               .global	SSSPEEK			; can be called to read a char from the PLAYFIELD
+000000r 2               .global	SSSPEEKXY
+000000r 2               .global	SSSPOKE			; can be called to put a char on the PLAYFIELD
+000000r 2               .global	SSSCREATE		; must be called to allocate a sprite buffer
+000000r 2               .global SSSUSE			; must be called prior to manipulating a sprite
+000000r 2               .global	SSSANIM			; must be called to load a sprite image
+000000r 2               .global	SSSMOVEXY		; must be called to put a sprite in the visible area
+000000r 2               .global SSSTOUCH		; can be called to force a sprite to re-render
+000000r 2               .global	SSSREFRESH		; can be called to force all sprites to re-render
+000000r 2               .global	SSSFFLIP		; same as FLIP, but may drop a frame refresh for speed
+000000r 2               .global	SSSFLIP			; must be called to see updates on the VIC display
+000000r 2               ;
+000000r 2               ; used internally by SSS, but may have use by program:
+000000r 2               ;
+000000r 2               .global	SSSCOMMIT
+000000r 2               .global	SSSIMAGE
+000000r 2               .global SSSMASK
+000000r 2               .global	SSSPLOTS
+000000r 2               .global	SSSPEEKS
+000000r 2               .global	SSSREAD
+000000r 2               .global SSSUPDATE
+000000r 2               .global	SSSWRITE
+000000r 2               ;
+000000r 2               ; useful .asciiz translations for SSSPRINTS
+000000r 2               ;
+000000r 2               .charmap '@', $80
+000000r 2               .charmap 'A', $81
+000000r 2               .charmap 'B', $82
+000000r 2               .charmap 'C', $83
+000000r 2               .charmap 'D', $84
+000000r 2               .charmap 'E', $85
+000000r 2               .charmap 'F', $86
+000000r 2               .charmap 'G', $87
+000000r 2               .charmap 'H', $88
+000000r 2               .charmap 'I', $89
+000000r 2               .charmap 'J', $8A
+000000r 2               .charmap 'K', $8B
+000000r 2               .charmap 'L', $8C
+000000r 2               .charmap 'M', $8D
+000000r 2               .charmap 'N', $8E
+000000r 2               .charmap 'O', $8F
+000000r 2               .charmap 'P', $90
+000000r 2               .charmap 'Q', $91
+000000r 2               .charmap 'R', $92
+000000r 2               .charmap 'S', $93
+000000r 2               .charmap 'T', $94
+000000r 2               .charmap 'U', $95
+000000r 2               .charmap 'V', $96
+000000r 2               .charmap 'W', $97
+000000r 2               .charmap 'X', $98
+000000r 2               .charmap 'Y', $99
+000000r 2               .charmap 'Z', $9A
+000000r 2               .charmap '{', $9B
+000000r 2               .charmap '|', $9C	; British pound symbol
+000000r 2               .charmap '}', $9D
+000000r 2               .charmap '^', $9E	; uparrow symbol
+000000r 2               .charmap '`', $9F	; left arrow symbol
+000000r 2               .charmap ' ', SSSNULL
+000000r 2               .charmap '!', $A1
+000000r 2               .charmap '"', $A2
+000000r 2               .charmap '#', $A3
+000000r 2               .charmap '$', $A4
+000000r 2               .charmap '%', $A5
+000000r 2               .charmap '&', $A6
+000000r 2               .charmap ''', $A7
+000000r 2               .charmap '(', $A8
+000000r 2               .charmap ')', $A9
+000000r 2               .charmap '*', $AA
+000000r 2               .charmap '+', $AB
+000000r 2               .charmap ',', $AC
+000000r 2               .charmap '-', $AD
+000000r 2               .charmap '.', $AE
+000000r 2               .charmap '/', $AF
+000000r 2               .charmap '0', $B0
+000000r 2               .charmap '1', $B1
+000000r 2               .charmap '2', $B2
+000000r 2               .charmap '3', $B3
+000000r 2               .charmap '4', $B4
+000000r 2               .charmap '5', $B5
+000000r 2               .charmap '6', $B6
+000000r 2               .charmap '7', $B7
+000000r 2               .charmap '8', $B8
+000000r 2               .charmap '9', $B9
+000000r 2               .charmap ':', $BA
+000000r 2               .charmap ';', $BB
+000000r 2               .charmap '<', $BC
+000000r 2               .charmap '=', $BD
+000000r 2               .charmap '>', $BE
+000000r 2               .charmap '?', $BF
+000000r 2               .charmap '~', $DE	; PI symbol
+000000r 2               
+000000r 2               
+000000r 1               		.segment "SPRITE"
+000000r 1               
+000000r 1               
+000000r 1               ;*********************************************************************
+000000r 1               ; Software Sprite Stack INITIALIZATION
+000000r 1               ;
+000000r 1               ; MUST BE INVOKED ONCE BEFORE USING ANY OTHER SSS CALL
+000000r 1               ; Value in COLORCODE will be used to fill the color buffers.
+000000r 1               ;
+000000r 1               SSSINIT:
+000000r 1               		; SSS geometry
+000000r 1  AD 02 90     		LDA VIC+$02
+000003r 1  29 1F        		AND #$1F
+000005r 1  85 D5        		STA PLAYCOLS
+000007r 1  0A           		ASL				; CLC
+000008r 1  69 04        		ADC #$04
+00000Ar 1  0A           		ASL
+00000Br 1  0A           		ASL
+00000Cr 1  8D 98 02     		STA SSSCLIPX
+00000Fr 1  AD 03 90     		LDA VIC+$03
+000012r 1  29 7E        		AND #$7E
+000014r 1  4A           		LSR
+000015r 1  85 C8        		STA PLAYROWS
+000017r 1  0A           		ASL				; CLC
+000018r 1  69 04        		ADC #$04
+00001Ar 1  0A           		ASL
+00001Br 1  0A           		ASL
+00001Cr 1  8D 99 02     		STA SSSCLIPY
+00001Fr 1               		;
+00001Fr 1  A9 00        		LDA #$00
+000021r 1  85 D6        		STA CRSRROW
+000023r 1  85 D3        		STA CRSRCOL
+000025r 1  A8           		TAY
+000026r 1  AA           		TAX
+000027r 1  98           @sss:	TYA
+000028r 1  9D rr rr     		STA sss+1,X
+00002Br 1  A5 D3        		LDA CRSRCOL
+00002Dr 1  9D rr rr     		STA sss,X
+000030r 1  18           		CLC
+000031r 1  65 D5        		ADC PLAYCOLS
+000033r 1  90 01        		BCC @cc
+000035r 1  C8           		INY
+000036r 1  85 D3        @cc:	STA CRSRCOL
+000038r 1  E8           		INX
+000039r 1  E8           		INX
+00003Ar 1  E6 D6        		INC CRSRROW
+00003Cr 1  A5 D6        		LDA CRSRROW
+00003Er 1  C5 C8        		CMP PLAYROWS
+000040r 1  D0 E5        		BNE @sss
+000042r 1                       ;
+000042r 1               		; SSS active / pending video page pointers
+000042r 1  A9 10        		LDA #>VICFRAME1
+000044r 1  8D 88 02     		STA SCRNPAGE
+000047r 1  A9 12        		LDA #>VICFRAME2
+000049r 1  8D 93 02     		STA PENDING
+00004Cr 1  A9 40        		LDA #$40
+00004Er 1  85 BF        		STA NEWDIRT
+000050r 1               		;
+000050r 1               		; kernal init
+000050r 1  A9 01        		LDA #$01
+000052r 1  85 C7        		STA RVSFLAG		; character reverse flag
+000054r 1  A9 80        		LDA #$80
+000056r 1  8D 91 02     		STA SHIFTMODE	; locked
+000059r 1  A9 00        		LDA #$00
+00005Br 1  8D 92 02     		STA SCROLLFLAG	; disable
+00005Er 1               		;
+00005Er 1               		; SPRITE register init
+00005Er 1  85 B7        		STA SPRITES
+000060r 1               		;
+000060r 1               		; fill VIC screen / color buffers
+000060r 1  A9 A0        		LDA #SSSNULL
+000062r 1  20 rr rr     		JSR SSSCLEAR
+000065r 1               		;
+000065r 1               		; VIC register init
+000065r 1  AD 02 90     		LDA VIC+$02
+000068r 1  29 7F        		AND #$7F		; if $80 enabled, +$0200 to base screen address
+00006Ar 1  8D 02 90     		STA VIC+$02
+00006Dr 1  A9 CF        		LDA #$CF		; point VIC screen @ $1000 w/ char set @ $1C00
+00006Fr 1               	;	LDA #$C0		; uncomment for debugging display purposes
+00006Fr 1  8D 05 90     		STA VIC+$05
+000072r 1               		;
+000072r 1               		; FRAME register init
+000072r 1  A0 00        		LDY #$00
+000074r 1  8C 85 02     		STY FPS
+000077r 1  8C 95 02     		STY VSYNC
+00007Ar 1  8C 96 02     		STY VSYNC2
+00007Dr 1  8C 97 02     		STY VCOUNT
+000080r 1  20 rr rr     		JSR SSSFLIP
+000083r 1  60           		RTS
+000084r 1               
+000084r 1               
+000084r 1               ;*********************************************************************
+000084r 1               ; Software Sprite Stack IRQ HANDLER
+000084r 1               ;
+000084r 1               ; PROGRAM USE OF THIS HANDLER IS OPTIONAL
+000084r 1               ;
+000084r 1               ; customize to your liking, i.e.,
+000084r 1               ; - change JMP $EABF here to continue to your custom IRQ handler; or
+000084r 1               ; - JMP SSSIRQ at the end of your IRQ handler.
+000084r 1               ;
+000084r 1               SSSIRQ:
+000084r 1  A5 A2        		LDA JIFFYL
+000086r 1  29 3F        		AND #%00111111
+000088r 1  D0 09        		BNE @cont
+00008Ar 1  AE 97 02     		LDX VCOUNT
+00008Dr 1  8E 85 02     		STX FPS
+000090r 1  8D 97 02     		STA VCOUNT
+000093r 1               @cont:
+000093r 1  EE 96 02     		INC VSYNC2		; frame skipped?
+000096r 1  AD 95 02     		LDA VSYNC
+000099r 1  F0 11        		BEQ @fskip		; program is NOT waiting ...
+00009Br 1  A2 00        		LDX #$00
+00009Dr 1  38           		SEC
+00009Er 1  ED 96 02     		SBC VSYNC2
+0000A1r 1  8D 95 02     		STA VSYNC		; save result
+0000A4r 1  B0 03        		BCS @reset		; program wants more than 1 screen refresh
+0000A6r 1  8E 95 02     		STX VSYNC		; clear wait for vertical sync flag
+0000A9r 1  8E 96 02     @reset:	STX VSYNC2		; clear frame skip counter
+0000ACr 1               @fskip:
+0000ACr 1  4C BF EA     		JMP $EABF
+0000AFr 1               
+0000AFr 1               
+0000AFr 1               ;*********************************************************************
+0000AFr 1               ; Software Sprite Stack CLEAR SCREEN
+0000AFr 1               ;
+0000AFr 1               ; Pass A with the character code to fill the PLAYFIELD buffer.
+0000AFr 1               ; Value in COLORCODE will be used to fill the PLAYCOLOR buffer.
+0000AFr 1               ;
+0000AFr 1               ; These changes will go into effect only after a call to SSSFLIP
+0000AFr 1               ;
+0000AFr 1               SSSCLEAR:
+0000AFr 1  48           		PHA				;++ save character fill code
+0000B0r 1  A2 00        		LDX #$00
+0000B2r 1  A0 00        		LDY #$00
+0000B4r 1  20 rr rr     		JSR SSSPLOT		; home "cursor"
+0000B7r 1  98           @reset:	TYA
+0000B8r 1  95 D9        		STA DIRTYLINE,X
+0000BAr 1  A5 D5        		LDA PLAYCOLS
+0000BCr 1  95 59        		STA DIRTYLINE2,X
+0000BEr 1  E8           		INX
+0000BFr 1  E4 C8        		CPX PLAYROWS
+0000C1r 1  D0 F4        		BNE @reset
+0000C3r 1               		;
+0000C3r 1  68           @cls:	PLA				;--
+0000C4r 1  48           		PHA				;++
+0000C5r 1  20 rr rr     		JSR SSSPRINT
+0000C8r 1  A6 D3        		LDX CRSRCOL
+0000CAr 1  D0 F7        		BNE @cls		; loop until column wraps
+0000CCr 1  A4 D6        		LDY CRSRROW
+0000CEr 1  D0 F3        		BNE @cls		; loop until row wraps, too
+0000D0r 1  68           		PLA				;--
+0000D1r 1  60           		RTS
+0000D2r 1               
+0000D2r 1               
+0000D2r 1               ;*********************************************************************
+0000D2r 1               ; Software Sprite Stack PLOT CURSOR IN FRAME BUFFER
+0000D2r 1               ;
+0000D2r 1               ; SSSPLOT uses PLAYFIELD frame buffer.
+0000D2r 1               ; SSSPLOTS uses PENDING frame buffer.
+0000D2r 1               ;
+0000D2r 1               ; Pass X/Y with coordinate to put cursor.
+0000D2r 1               ;
+0000D2r 1               SSSPLOT:
+0000D2r 1  A9 14        		LDA #>PLAYFIELD
+0000D4r 1  85 D2        		STA SCRNLINE+1
+0000D6r 1  A9 16        		LDA #>PLAYCOLOR
+0000D8r 1  85 F4        		STA COLORLINE+1
+0000DAr 1  D0 09        		BNE SSSPLOTX
+0000DCr 1               ;
+0000DCr 1               ; PENDING frame cursor (for writing SPRITE chars)
+0000DCr 1               SSSPLOTS:
+0000DCr 1  AD 93 02     		LDA PENDING
+0000DFr 1  85 D2        		STA SCRNLINE+1
+0000E1r 1  09 84        		ORA #$84
+0000E3r 1  85 F4        		STA COLORLINE+1
+0000E5r 1               ;
+0000E5r 1               SSSPLOTX:
+0000E5r 1  A9 16        		LDA #>PLAYCOLOR
+0000E7r 1  85 F2        		STA DIRTMAP+1
+0000E9r 1  E4 D5        @x:		CPX PLAYCOLS
+0000EBr 1  30 03        		BMI @y
+0000EDr 1  A6 D5        		LDX PLAYCOLS
+0000EFr 1  CA           		DEX
+0000F0r 1  C4 C8        @y:		CPY PLAYROWS
+0000F2r 1  30 03        		BMI @ok
+0000F4r 1  A4 C8        		LDY PLAYROWS
+0000F6r 1  88           		DEY
+0000F7r 1  86 D3        @ok:	STX CRSRCOL		; maintain column offset to row
+0000F9r 1  84 D6        		STY CRSRROW		; maintain row number
+0000FBr 1  98           		TYA
+0000FCr 1  0A           		ASL
+0000FDr 1  A8           		TAY
+0000FEr 1  B9 rr rr     		LDA sss+1,Y
+000101r 1  F0 06        		BEQ @top
+000103r 1  E6 D2        		INC SCRNLINE+1
+000105r 1  E6 F4        		INC COLORLINE+1
+000107r 1  E6 F2        		INC DIRTMAP+1
+000109r 1  B9 rr rr     @top:	LDA sss,Y
+00010Cr 1  85 D1        		STA SCRNLINE
+00010Er 1  85 F3        		STA COLORLINE
+000110r 1  85 F1        		STA DIRTMAP
+000112r 1  A4 D6        		LDY CRSRROW
+000114r 1  60           		RTS
+000115r 1               
+000115r 1               
+000115r 1               ;*********************************************************************
+000115r 1               ; Software Sprite Stack PRINT TO A FRAME BUFFER
+000115r 1               ;
+000115r 1               ; Like SSSPOKE, writes to current cursor, but also advances it to
+000115r 1               ; the right (with line/screen wrap) upon completion.
+000115r 1               ;
+000115r 1               ; All registers are preserved from this call, for common loop use.
+000115r 1               ;
+000115r 1               SSSPRINT:
+000115r 1  8E 0D 03     		STX XCOPY		; save index registers
+000118r 1  8C 0E 03     		STY YCOPY
+00011Br 1  20 rr rr     		JSR SSSPOKE
+00011Er 1  E6 D3        		INC CRSRCOL		; cursor right
+000120r 1  A5 D3        		LDA CRSRCOL
+000122r 1  C5 D5        		CMP PLAYCOLS	; moved past right edge?
+000124r 1  90 1B        		BCC @fini		; no, all done
+000126r 1  A9 00        		LDA #$00
+000128r 1  85 D3        		STA CRSRCOL		; reset to 1st column
+00012Ar 1  E6 D6        		INC CRSRROW		; and advance down a row
+00012Cr 1  A5 D6        		LDA CRSRROW
+00012Er 1  C5 C8        		CMP PLAYROWS	; moved past bottom edge?
+000130r 1  B0 21        		BCS @toprow		; yes, wrap back to top
+000132r 1  A5 D1        		LDA SCRNLINE	; no, re-calculate new row pointer
+000134r 1  18           		CLC
+000135r 1  65 D5        		ADC PLAYCOLS
+000137r 1  90 04        		BCC @cc
+000139r 1  E6 D2        		INC SCRNLINE+1
+00013Br 1  E6 F4        		INC COLORLINE+1
+00013Dr 1  85 D1        @cc:	STA SCRNLINE
+00013Fr 1  85 F3        		STA COLORLINE
+000141r 1  A4 D3        @fini:	LDY CRSRCOL
+000143r 1  B1 F3        		LDA (COLORLINE),Y
+000145r 1  8D 87 02     		STA CRSRCOLOR
+000148r 1  B1 D1        		LDA (SCRNLINE),Y
+00014Ar 1  85 CE        		STA CRSRCHAR
+00014Cr 1  AE 0D 03     		LDX XCOPY		; restore index registers
+00014Fr 1  AC 0E 03     		LDY YCOPY
+000152r 1  60           		RTS
+000153r 1               @toprow:
+000153r 1  A9 00        		LDA #$00
+000155r 1  85 D6        		STA CRSRROW
+000157r 1  85 D1        		STA SCRNLINE
+000159r 1  85 F3        		STA COLORLINE
+00015Br 1  C6 D2        		DEC SCRNLINE+1
+00015Dr 1  C6 F4        		DEC COLORLINE+1
+00015Fr 1  D0 E0        		BNE @fini
+000161r 1               
+000161r 1               
+000161r 1               ;*********************************************************************
+000161r 1               ; Software Sprite Stack PRINT STRING FROM POINTER ON STACK
+000161r 1               ;
+000161r 1               ; Will print bytes, until a NULL, following the JSR call here.
+000161r 1               ; Carriage control and color codes are interpreted.
+000161r 1               ;
+000161r 1               SSSPRINTS:
+000161r 1  68           		PLA
+000162r 1  85 F7        		STA VECTORFG
+000164r 1  68           		PLA
+000165r 1  85 F8        		STA VECTORFG+1
+000167r 1  A0 01        		LDY #$01
+000169r 1  B1 F7        @loop:	LDA (VECTORFG),Y
+00016Br 1  F0 29        		BEQ @fini
+00016Dr 1  C9 0D        		CMP #$0D
+00016Fr 1  D0 0F        		BNE @ctrl
+000171r 1  98           		TYA
+000172r 1  48           		PHA
+000173r 1  A4 D6        		LDY CRSRROW
+000175r 1  C8           		INY
+000176r 1  A2 00        		LDX #0
+000178r 1  20 rr rr     		JSR SSSPLOT
+00017Br 1  68           		PLA
+00017Cr 1  A8           		TAY
+00017Dr 1  4C rr rr     		JMP @next
+000180r 1  C9 F0        @ctrl:	CMP #$F0
+000182r 1  90 08        		BCC @cont		; color code?
+000184r 1  29 0F        		AND #$0F		; filter for 16-colors
+000186r 1  8D 86 02     		STA COLORCODE	; 0=blk,1=wht,2=red,3=cyn,4=mag,5=grn,6=blu,7=yel
+000189r 1  4C rr rr     		JMP @next
+00018Cr 1  20 rr rr     @cont:	JSR SSSPRINT
+00018Fr 1  C8           @next:	INY
+000190r 1  D0 D7        		BNE @loop
+000192r 1  E6 F8        		INC VECTORFG+1
+000194r 1  D0 D3        		BNE @loop
+000196r 1               		;
+000196r 1  98           @fini:	TYA
+000197r 1  18           		CLC
+000198r 1  65 F7        		ADC VECTORFG
+00019Ar 1  90 02        		BCC @cc
+00019Cr 1  E6 F8        		INC VECTORFG+1
+00019Er 1  85 F7        @cc:	STA VECTORFG
+0001A0r 1  A5 F8        		LDA VECTORFG+1
+0001A2r 1  48           		PHA
+0001A3r 1  A5 F7        		LDA VECTORFG
+0001A5r 1  48           		PHA
+0001A6r 1  60           		RTS
+0001A7r 1               
+0001A7r 1               
+0001A7r 1               ;*********************************************************************
+0001A7r 1               ; Software Sprite Stack READ FROM A FRAME BUFFER
+0001A7r 1               ;
+0001A7r 1               ; SSSPEEK reads from PLAYFIELD frame buffer.
+0001A7r 1               ; SSSPEEKS reads from PENDING frame buffer.
+0001A7r 1               ; SSSPEEKXY reads from PLAYFIELD frame buffer, using the sprite pixel
+0001A7r 1               ; coordinate system to determine X/Y cursor positioning.
+0001A7r 1               ;
+0001A7r 1               ; Pass X/Y with the coordinate to put cursor.
+0001A7r 1               ; CRSRCHAR and CRSRCOLOR are filled with values under cursor, with
+0001A7r 1               ; the former returned in Accumulator.
+0001A7r 1               ;
+0001A7r 1               SSSPEEKS:
+0001A7r 1  20 rr rr     		JSR SSSPLOTS
+0001AAr 1  4C rr rr     		JMP SSSPEEKX
+0001ADr 1               ;
+0001ADr 1               ; pixel X/Y
+0001ADr 1               SSSPEEKXY:
+0001ADr 1  E0 10        		CPX #$10
+0001AFr 1  90 0E        		BCC @fini		; hidden by left border
+0001B1r 1  EC 98 02     		CPX SSSCLIPX
+0001B4r 1  B0 09        		BCS @fini		; hidden by right border
+0001B6r 1  C0 10        		CPY #$10
+0001B8r 1  90 05        		BCC @fini		; above top border
+0001BAr 1  CC 99 02     		CPY SSSCLIPY
+0001BDr 1  90 01        		BCC @ok			; below bottom border
+0001BFr 1  60           @fini:	RTS
+0001C0r 1  98           @ok:	TYA
+0001C1r 1  38           		SEC
+0001C2r 1  E9 10        		SBC #$10
+0001C4r 1  4A           		LSR
+0001C5r 1  4A           		LSR
+0001C6r 1  4A           		LSR
+0001C7r 1  A8           		TAY
+0001C8r 1               		;
+0001C8r 1  8A           		TXA
+0001C9r 1  38           		SEC
+0001CAr 1  E9 10        		SBC #$10
+0001CCr 1  4A           		LSR
+0001CDr 1  4A           		LSR
+0001CEr 1  4A           		LSR
+0001CFr 1  AA           		TAX
+0001D0r 1               ;
+0001D0r 1               SSSPEEK:
+0001D0r 1  20 rr rr     		JSR SSSPLOT
+0001D3r 1               ;
+0001D3r 1               SSSPEEKX:
+0001D3r 1  A4 D3        		LDY CRSRCOL
+0001D5r 1  B1 F3        		LDA (COLORLINE),Y
+0001D7r 1  8D 87 02     		STA CRSRCOLOR
+0001DAr 1  B1 D1        		LDA (SCRNLINE),Y
+0001DCr 1  85 CE        		STA CRSRCHAR
+0001DEr 1  60           		RTS
+0001DFr 1               
+0001DFr 1               
+0001DFr 1               ;*********************************************************************
+0001DFr 1               ; Software Sprite Stack WRITE TO A FRAME BUFFER
+0001DFr 1               ;
+0001DFr 1               ; Pass Accumulator with character code to write to current cursor.
+0001DFr 1               ; COLORCODE is used to fill same space with that value.
+0001DFr 1               ;
+0001DFr 1               SSSPOKE:
+0001DFr 1  A4 D3        		LDY CRSRCOL
+0001E1r 1  91 D1        		STA (SCRNLINE),Y
+0001E3r 1  B1 F1        		LDA (DIRTMAP),Y
+0001E5r 1  A6 D2        		LDX SCRNLINE+1
+0001E7r 1  E0 14        		CPX #>PLAYFIELD
+0001E9r 1  10 0A        		BPL @bg
+0001EBr 1  05 BF        		ORA NEWDIRT
+0001EDr 1  91 F1        		STA (DIRTMAP),Y	; update sprite's dirty bits only
+0001EFr 1               	.ifdef SPRITEDEF5
+0001EFr 1               		LDA (COLORLINE),Y
+0001EFr 1               		BIT COLORCODE
+0001EFr 1               		BMI @color		; keep color in place
+0001EFr 1               	.endif
+0001EFr 1  AD 86 02     		LDA COLORCODE	; add color directly to map
+0001F2r 1  4C rr rr     		JMP @color
+0001F5r 1  29 C0        @bg:	AND #%11000000	; keep any sprite dirt
+0001F7r 1  09 20        		ORA #%00100000	; dirty this PLAYFIELD cell
+0001F9r 1  0D 86 02     		ORA COLORCODE	; add color
+0001FCr 1  91 F3        @color:	STA (COLORLINE),Y
+0001FEr 1  A6 D6        		LDX CRSRROW
+000200r 1  A4 D3        		LDY CRSRCOL
+000202r 1  B5 D9        		LDA DIRTYLINE,X
+000204r 1  C5 D3        		CMP CRSRCOL
+000206r 1  90 02        		BCC @ok			; is dirty seek lower than this write?
+000208r 1  94 D9        		STY DIRTYLINE,X	; start looking for dirty cells from here
+00020Ar 1  98           @ok:	TYA
+00020Br 1  D5 59        		CMP DIRTYLINE2,X
+00020Dr 1  90 03        		BCC @ok2		; is dirty seek higher than this write?
+00020Fr 1  C8           		INY
+000210r 1  94 59        		STY DIRTYLINE2,X ; stop looking for dirty cells after here
+000212r 1  60           @ok2:	RTS
+000213r 1               
+000213r 1               
+000213r 1               ;*********************************************************************
+000213r 1               ; Software Sprite Stack FLIP ACTIVE / PENDING FRAME BUFFERS
+000213r 1               ;
+000213r 1               ; Pass Y with the number of vertical sync counts to wait for, or zero
+000213r 1               ; to make changes visible immediately.
+000213r 1               ;
+000213r 1               ; Only the current cursor position is preserved when completed.
+000213r 1               ;
+000213r 1               ; If user is holding RUN/STOP key down, the current video frame is
+000213r 1               ; paused until it is released.
+000213r 1               ;
+000213r 1               SSSFFLIP:
+000213r 1  A9 00        		LDA #$00		; gameplay needs its action to move faster
+000215r 1  2C 96 02     		BIT VSYNC2
+000218r 1  10 09        		BPL SSSFLIP2	; do we need to drop a frame?
+00021Ar 1  8D 96 02     		STA VSYNC2
+00021Dr 1  60           		RTS
+00021Er 1               		;
+00021Er 1               SSSFLIP:
+00021Er 1  A9 00        		LDA #$00
+000220r 1  8D 96 02     		STA VSYNC2
+000223r 1               SSSFLIP2:
+000223r 1  A5 D6        		LDA CRSRROW
+000225r 1  48           		PHA				;++ save row
+000226r 1  A5 D3        		LDA CRSRCOL
+000228r 1  48           		PHA				;++ save column
+000229r 1  98           		TYA
+00022Ar 1  48           		PHA				;++ save Y (frame count)
+00022Br 1               		;
+00022Br 1               		; Phase I:
+00022Br 1               		; - write any new PLAYFIELD updates to PENDING frame
+00022Br 1               		; - erase any SPRITE characters from PENDING frame
+00022Br 1               		;
+00022Br 1  A9 10        		LDA #%00010000	; clean TOPFIELD dirt only after this update
+00022Dr 1  20 rr rr     		JSR SSSCOMMIT
+000230r 1               		;
+000230r 1               		; Phase II:
+000230r 1               		; - render & write SPRITE characters to PENDING frame
+000230r 1               		;
+000230r 1  20 rr rr     		JSR SSSUPDATE
+000233r 1               		;
+000233r 1               		; PHASE III:
+000233r 1               		; - signal IRQ to flip video to PENDING frame
+000233r 1               		; - wait for the all clear
+000233r 1               		;
+000233r 1  68           		PLA				;-- restore A (frame count)
+000234r 1  A8           		TAY
+000235r 1  C8           		INY				; account for a 'missed' frame
+000236r 1               	;	INY				; allow for another 'missed' frame
+000236r 1  CC 96 02     		CPY VSYNC2
+000239r 1  B0 07        		BCS @pace		; is game loop & rendering ok?
+00023Br 1  A0 80        		LDY #$80		; nope, flag next call to SSSFFLIP
+00023Dr 1  8C 96 02     		STY VSYNC2		; to skip rendering/flip altogether
+000240r 1  A9 00        		LDA #$00		; and don't wait for this vsync either
+000242r 1  8D 95 02     @pace:	STA VSYNC		; enable screen to flip
+000245r 1  AD 95 02     @vsync:	LDA VSYNC
+000248r 1  D0 FB        		BNE @vsync		; and wait for it to occur
+00024Ar 1  2C 96 02     		BIT VSYNC2
+00024Dr 1  30 03        		BMI @ok
+00024Fr 1  8D 96 02     		STA VSYNC2		; fast flip, gauge again for next frame
+000252r 1               		;
+000252r 1  AD 02 90     @ok:	LDA VIC+$02
+000255r 1  49 80        		EOR #$80
+000257r 1  8D 02 90     		STA VIC+$02		; re-direct VIC to other screen buffer
+00025Ar 1  EE 97 02     		INC VCOUNT
+00025Dr 1  AD 88 02     		LDA SCRNPAGE
+000260r 1  8D 93 02     		STA PENDING		; make active screen as pending
+000263r 1  49 02        		EOR #$02
+000265r 1  8D 88 02     		STA SCRNPAGE	; maintain VIC active video page
+000268r 1               		;
+000268r 1               		; PHASE IV:
+000268r 1               		; - write the same PLAYFIELD updates to new PENDING frame
+000268r 1               		;
+000268r 1  A9 20        		LDA #%00100000	; clean PLAYFIELD dirt as part of this update
+00026Ar 1  20 rr rr     		JSR SSSCOMMIT
+00026Dr 1               		;
+00026Dr 1  68           		PLA				;-- restore X (column)
+00026Er 1  AA           		TAX
+00026Fr 1  68           		PLA				;-- restore Y (row)
+000270r 1  A8           		TAY
+000271r 1  20 rr rr     		JSR SSSPLOT
+000274r 1               		;
+000274r 1  20 70 F7     @pause:	JSR STOPKEY
+000277r 1  D0 05        		BNE @fini
+000279r 1               		;LDA #$00		; clear skipped frame count
+000279r 1               		;STA VSYNC2
+000279r 1               		;STA VCOUNT
+000279r 1               	;	=== write any custom PAUSE or RESET code here ===
+000279r 1  68           		PLA
+00027Ar 1  68           		PLA
+00027Br 1               		.global RESTART
+00027Br 1  4C rr rr     		JMP RESTART		; label speaks for itself
+00027Er 1               		;
+00027Er 1  60           @fini:	RTS
+00027Fr 1               
+00027Fr 1               
+00027Fr 1               ;*********************************************************************
+00027Fr 1               ; Software Sprite Stack COMMIT CHANGES TO PENDING FRAME BUFFER
+00027Fr 1               ;
+00027Fr 1               ; pass Accumulator with the PLAYFIELD bit(s) set for cleaning:
+00027Fr 1               ; - bit 7 for video #1
+00027Fr 1               ; - bit 6 for video #2
+00027Fr 1               ; - bit 5 for playfield
+00027Fr 1               ; - bit 4 for topfield
+00027Fr 1               ;
+00027Fr 1               ; SPRITE dirt for the PENDING frame is always cleaned.
+00027Fr 1               ;
+00027Fr 1               ; This is used by SSSFLIP and NOT normally called by user programs.
+00027Fr 1               ;
+00027Fr 1               DIRTYMASK	= $00
+00027Fr 1               CLEANER		= $01		; bit 7=VIDEO1, 6=VIDEO2, 5=PLAYFIELD, 4=STATIC
+00027Fr 1               ;
+00027Fr 1               SSSCOMMIT:
+00027Fr 1  AE 93 02     		LDX PENDING
+000282r 1  E0 10        		CPX #>VICFRAME1	; will flip to video #1 next?
+000284r 1  D0 04        		BNE @scrn2
+000286r 1  09 80        		ORA #%10000000	; erase old sprites from video #1
+000288r 1  D0 02        		BNE @cont
+00028Ar 1  09 40        @scrn2:	ORA #%01000000	; erase old sprites from video #2
+00028Cr 1  A8           @cont:	TAY
+00028Dr 1  49 FF        		EOR #$FF		; reverse check to clean
+00028Fr 1  85 01        		STA CLEANER
+000291r 1  98           		TYA
+000292r 1  09 20        		ORA #%00100000	; but always look for PLAYFIELD dirt
+000294r 1  85 00        		STA DIRTYMASK
+000296r 1  8A           		TXA
+000297r 1  85 FC        		STA VECTOR2+1
+000299r 1  09 84        		ORA #$84		; and its COLOR
+00029Br 1  85 FE        		STA VECTOR3+1
+00029Dr 1  A2 00        		LDX #$00
+00029Fr 1  86 FB        		STX VECTOR2
+0002A1r 1  86 FD        		STX VECTOR3
+0002A3r 1  A0 00        		LDY #$00
+0002A5r 1  20 rr rr     		JSR SSSPLOT		; home "cursor"
+0002A8r 1               		;
+0002A8r 1  A2 00        		LDX #$00
+0002AAr 1  B5 59        @forx:	LDA DIRTYLINE2,X
+0002ACr 1  8D 0C 03     		STA ACOPY
+0002AFr 1  B5 D9        		LDA DIRTYLINE,X	; dirty start column for this row
+0002B1r 1  CD 0C 03     		CMP ACOPY
+0002B4r 1  B0 33        		BCS @nextx		; reached end of this line?
+0002B6r 1  A4 D5        		LDY PLAYCOLS
+0002B8r 1  84 BF        		STY NEWDIRT
+0002BAr 1  94 D9        		STY DIRTYLINE,X	; reset this line's seek for next commit
+0002BCr 1  A0 00        		LDY #$00
+0002BEr 1  94 59        		STY DIRTYLINE2,X ; reset this line's end for next commit
+0002C0r 1  A8           		TAY				; but start this commit from this column
+0002C1r 1  B1 F3        @fory:	LDA (COLORLINE),Y
+0002C3r 1  29 E0        		AND #%11100000	; is this cell dirty for ANY update?
+0002C5r 1  F0 1C        		BEQ @nexty		; no, skip it
+0002C7r 1  94 59        		STY DIRTYLINE2,X ; new ending column for this line
+0002C9r 1  F6 59        		INC DIRTYLINE2,X ; new ending column for this line
+0002CBr 1  C4 BF        		CPY NEWDIRT
+0002CDr 1  B0 04        		BCS @more
+0002CFr 1  84 BF        		STY NEWDIRT
+0002D1r 1  94 D9        		STY DIRTYLINE,X	; new starting column for this line
+0002D3r 1  25 00        @more:	AND DIRTYMASK	; is this cell dirty for THIS update?
+0002D5r 1  F0 0C        		BEQ @nexty		; no, skip it
+0002D7r 1  B1 F3        		LDA (COLORLINE),Y
+0002D9r 1  91 FD        		STA (VECTOR3),Y	; update color cell
+0002DBr 1  25 01        		AND CLEANER		; remove this dirt from this cell
+0002DDr 1  91 F3        		STA (COLORLINE),Y
+0002DFr 1  B1 D1        		LDA (SCRNLINE),Y
+0002E1r 1  91 FB        		STA (VECTOR2),Y	; update video cell
+0002E3r 1  C8           @nexty:	INY
+0002E4r 1  CC 0C 03     		CPY ACOPY
+0002E7r 1  90 D8        		BCC @fory
+0002E9r 1  A5 D1        @nextx:	LDA SCRNLINE
+0002EBr 1  18           		CLC
+0002ECr 1  65 D5        		ADC PLAYCOLS
+0002EEr 1  90 08        		BCC @cc
+0002F0r 1  E6 D2        		INC SCRNLINE+1
+0002F2r 1  E6 F4        		INC COLORLINE+1
+0002F4r 1  E6 FC        		INC VECTOR2+1
+0002F6r 1  E6 FE        		INC VECTOR3+1
+0002F8r 1  85 D1        @cc:	STA SCRNLINE
+0002FAr 1  85 F3        		STA COLORLINE
+0002FCr 1  85 FB        		STA VECTOR2
+0002FEr 1  85 FD        		STA VECTOR3
+000300r 1  E8           		INX
+000301r 1  E4 C8        		CPX PLAYROWS
+000303r 1  90 A5        		BCC @forx
+000305r 1               		;
+000305r 1  A9 80        		LDA #%10000000
+000307r 1  AE 93 02     		LDX PENDING
+00030Ar 1  E0 12        		CPX #>VICFRAME2	; will flip to video #2 next?
+00030Cr 1  D0 02        		BNE @scrn1
+00030Er 1  A9 40        		LDA #%01000000
+000310r 1  85 BF        @scrn1:	STA NEWDIRT
+000312r 1  60           		RTS
+000313r 1               
+000313r 1               
+000313r 1               ;*********************************************************************
+000313r 1               ; Software Sprite Stack CREATE A NEW SPRITE IN THE LIST
+000313r 1               ;
+000313r 1               ; pass Accumulator with the SPRITEDEF value (see HEADER)
+000313r 1               ; pass Y with the SPRITEH value (1-16)
+000313r 1               ; returns X with sprite index #0 thru SPRITEMAX-1
+000313r 1               ;
+000313r 1               SSSCREATE:
+000313r 1  8C 0E 03     		STY YCOPY
+000316r 1  A6 B7        		LDX SPRITES
+000318r 1  E0 0F        		CPX #SPRITEMAX
+00031Ar 1  90 01        		BCC @cont
+00031Cr 1  60           		RTS				; sorry, increase SPRITEMAX and re-compile
+00031Dr 1               @cont:
+00031Dr 1  9D rr rr     		STA SPRITEDEF,X
+000320r 1  E0 00        		CPX #$00
+000322r 1  D0 1A        		BNE @append		; >1 sprite
+000324r 1               		;
+000324r 1               		; this is the first sprite in the list ...
+000324r 1  A9 rr        		LDA #<SSSBUF
+000326r 1  A0 rr        		LDY #>SSSBUF
+000328r 1  8D rr rr     		STA SPRITEBUFL
+00032Br 1  8C rr rr     		STY SPRITEBUFH
+00032Er 1  A0 20        		LDY #$20		; start at top of custom character
+000330r 1  8E rr rr     		STX SPRITEC1L
+000333r 1  8C rr rr     		STY SPRITEC1H
+000336r 1  8E rr rr     		STX SPRITEC2L
+000339r 1  8C rr rr     		STY SPRITEC2H
+00033Cr 1  D0 30        		BNE @compute
+00033Er 1               @append:
+00033Er 1               		; copy prior sprite vectors
+00033Er 1  BD rr rr     		LDA SPRITEBUFL-1,X
+000341r 1  9D rr rr     		STA SPRITEBUFL,X
+000344r 1  BD rr rr     		LDA SPRITEBUFH-1,X
+000347r 1  9D rr rr     		STA SPRITEBUFH,X
+00034Ar 1  BD rr rr     		LDA SPRITEC1L-1,X
+00034Dr 1  9D rr rr     		STA SPRITEC2L,X
+000350r 1  BD rr rr     		LDA SPRITEC1H-1,X
+000353r 1  9D rr rr     		STA SPRITEC1H,X
+000356r 1  9D rr rr     		STA SPRITEC2H,X
+000359r 1               	.ifdef SPRITEDEF4
+000359r 1               		; repeating sprite?
+000359r 1               		LDA SPRITEDEF,X
+000359r 1               		AND #SPRITEDEF4
+000359r 1               		BNE @same
+000359r 1               	.endif
+000359r 1               		; no, allocate new image and character buffers
+000359r 1  BD rr rr     		LDA SPRITEDEF-1,X
+00035Cr 1  29 0F        		AND #$0F
+00035Er 1  A8           		TAY
+00035Fr 1  B9 rr rr     		LDA sssALLOC,Y
+000362r 1  18           		CLC
+000363r 1  7D rr rr     		ADC SPRITEBUFL,X
+000366r 1  90 03        		BCC @cc
+000368r 1  FE rr rr     		INC SPRITEBUFH,X
+00036Br 1  9D rr rr     @cc:	STA SPRITEBUFL,X
+00036Er 1               @compute:
+00036Er 1  BD rr rr     		LDA SPRITEDEF,X
+000371r 1  29 0F        		AND #$0F
+000373r 1  A8           		TAY
+000374r 1  B9 rr rr     		LDA sssALLOC,Y
+000377r 1  85 94        		STA sssBYTES
+000379r 1               		; vector#2 into custom char set
+000379r 1  BD rr rr     		LDA SPRITEC2L,X
+00037Cr 1  38           		SEC
+00037Dr 1  E5 94        		SBC sssBYTES	; account for its entire buffer size
+00037Fr 1  B0 06        		BCS @cc1
+000381r 1  DE rr rr     		DEC SPRITEC2H,X
+000384r 1  DE rr rr     		DEC SPRITEC1H,X
+000387r 1  9D rr rr     @cc1:	STA SPRITEC2L,X
+00038Ar 1  9D rr rr     		STA SPRITEC1L,X
+00038Dr 1               		; vector#1 into custom char set
+00038Dr 1  38           		SEC
+00038Er 1  E5 94        		SBC sssBYTES	; account for its entire buffer size
+000390r 1  B0 03        		BCS @cc2
+000392r 1  DE rr rr     		DEC SPRITEC1H,X
+000395r 1  9D rr rr     @cc2:	STA SPRITEC1L,X
+000398r 1  4C rr rr     		JMP @new
+00039Br 1               		; keep repeating sprite pointing to same custom characters
+00039Br 1  BD rr rr     @same:	LDA SPRITEC1L-1,X
+00039Er 1  9D rr rr     		STA SPRITEC1L,X
+0003A1r 1  BD rr rr     		LDA SPRITEC2L-1,X
+0003A4r 1  9D rr rr     		STA SPRITEC2L,X
+0003A7r 1  BD rr rr     		LDA SPRITEC2H-1,X
+0003AAr 1  9D rr rr     		STA SPRITEC2H,X
+0003ADr 1  AD 0E 03     @new:	LDA YCOPY
+0003B0r 1  9D rr rr     		STA SPRITEH,X
+0003B3r 1               	.ifdef SPRITEDEF6
+0003B3r 1               		LDA #SSSNULL	; init with nothing in contact
+0003B3r 1               		STA SPRITEBACK,X
+0003B3r 1               	.endif
+0003B3r 1  A9 00        		LDA #$00
+0003B5r 1               	.ifdef SPRITEDEF6
+0003B5r 1               		STA SPRITECX,X	; init collision X-coord
+0003B5r 1               		STA SPRITECY,X	; init collision Y-coord
+0003B5r 1               	.endif
+0003B5r 1  9D rr rr     		STA SPRITEX,X	; sprite is not in visible area to start
+0003B8r 1  9D rr rr     		STA SPRITEY,X
+0003BBr 1  9D rr rr     		STA SPRITEZ,X   ; all flags off
+0003BEr 1  A6 B7        		LDX SPRITES		; return this new sprite # as initialized
+0003C0r 1  86 90        		STX sssNUM
+0003C2r 1  E6 B7        		INC SPRITES		; account for the new sprite allocated
+0003C4r 1  60           		RTS
+0003C5r 1               
+0003C5r 1               
+0003C5r 1               ;*********************************************************************
+0003C5r 1               ; Software Sprite Stack SELECT A SPRITE TO MANIPULATE
+0003C5r 1               ;
+0003C5r 1               ; pass X index with the SPRITES number (0 - <SPRITEMAX)
+0003C5r 1               ; preset values for sssNUM, sssX, sssY, sssBYTES, sssNEXT
+0003C5r 1               ;
+0003C5r 1               SSSUSE:
+0003C5r 1  E4 B7        		CPX SPRITES
+0003C7r 1  90 01        		BCC @cont
+0003C9r 1  00           		BRK				; debugging is in your future
+0003CAr 1  86 90        @cont:	STX sssNUM
+0003CCr 1  BD rr rr     		LDA SPRITEDEF,X
+0003CFr 1  29 0F        		AND #$0F
+0003D1r 1  A8           		TAY
+0003D2r 1  29 04        		AND #%00000100	; Y-float enabled?
+0003D4r 1  F0 0B        		BEQ @y
+0003D6r 1  BD rr rr     		LDA SPRITEY,X
+0003D9r 1  29 07        		AND #$07
+0003DBr 1  D0 04        		BNE @y
+0003DDr 1  98           		TYA
+0003DEr 1  29 0B        		AND #%00001011	; shave overflow row off
+0003E0r 1  A8           		TAY
+0003E1r 1  98           @y:		TYA
+0003E2r 1  29 08        		AND #%00001000	; X-float enabled?
+0003E4r 1  F0 0B        		BEQ @x
+0003E6r 1  BD rr rr     		LDA SPRITEX,X
+0003E9r 1  29 07        		AND #$07
+0003EBr 1  D0 04        		BNE @x
+0003EDr 1  98           		TYA
+0003EEr 1  29 07        		AND #%00000111	; shave overflow column off
+0003F0r 1  A8           		TAY
+0003F1r 1               @x:		;
+0003F1r 1  B9 rr rr     		LDA sssALLOC,Y
+0003F4r 1  85 94        		STA sssBYTES
+0003F6r 1               		;
+0003F6r 1  B9 rr rr     		LDA sssROWS,Y
+0003F9r 1  85 93        		STA sssY
+0003FBr 1  0A           		ASL
+0003FCr 1  0A           		ASL
+0003FDr 1  0A           		ASL             ; x8
+0003FEr 1  85 95        		STA sssNEXT
+000400r 1               		;
+000400r 1  B9 rr rr     		LDA sssCOLS,Y
+000403r 1  85 92        		STA sssX
+000405r 1  60           @fini:	RTS
+000406r 1               
+000406r 1               
+000406r 1               ;*********************************************************************
+000406r 1               ; Software Sprite Stack LOAD SPRITE BUFFER WITH NEW IMAGE DATA
+000406r 1               ;
+000406r 1               ; SSSUSE must be called prior to point to sprite register entry
+000406r 1               ; pass Accumulator with this sprite's color
+000406r 1               ; pass X,Y as the source image pointer
+000406r 1               ;
+000406r 1               SSSANIM:
+000406r 1  86 97        		STX sssDX
+000408r 1  A6 90        		LDX sssNUM
+00040Ar 1  9D rr rr     		STA SPRITECOL,X
+00040Dr 1  A5 97        		LDA sssDX
+00040Fr 1  9D rr rr     		STA SPRITEIMGL,X
+000412r 1  98           		TYA
+000413r 1  9D rr rr     		STA SPRITEIMGH,X
+000416r 1  D0 0A        		BNE SSSTOUCH
+000418r 1               
+000418r 1               
+000418r 1               ;*********************************************************************
+000418r 1               ; Software Sprite Stack MOVE A SPRITE TO ABSOLUTE X,Y COORDINATES
+000418r 1               ;
+000418r 1               ; SSSUSE must be called prior to point to sprite register entry
+000418r 1               ; pass X,Y with the sprite coordinates
+000418r 1               ;
+000418r 1               SSSMOVEXY:
+000418r 1  8A           		TXA
+000419r 1  A6 90        		LDX sssNUM
+00041Br 1  9D rr rr     @x:		STA SPRITEX,X
+00041Er 1  98           @y:		TYA
+00041Fr 1  9D rr rr     		STA SPRITEY,X
+000422r 1               
+000422r 1               
+000422r 1               ;*********************************************************************
+000422r 1               ; Software Sprite Stack FLAG A SPRITE FOR RENDERING
+000422r 1               ;
+000422r 1               ; Pass X with the sprite#
+000422r 1               ;
+000422r 1               SSSTOUCH:
+000422r 1  BD rr rr     		LDA SPRITEZ,X
+000425r 1  29 03        		AND #%11		; reset flags, except fast copy + custom char
+000427r 1  09 C0        		ORA #%11000000	; force sprite to do make + copy/merge
+000429r 1  9D rr rr     		STA SPRITEZ,X
+00042Cr 1  60           		RTS
+00042Dr 1               
+00042Dr 1               
+00042Dr 1               ;*********************************************************************
+00042Dr 1               ; Software Sprite Stack FLAG ALL SPRITES FOR RENDERING
+00042Dr 1               ;
+00042Dr 1               SSSREFRESH:
+00042Dr 1  A2 00        		LDX #$00
+00042Fr 1  E4 B7        @loop:	CPX SPRITES
+000431r 1  B0 06        		BCS @fini
+000433r 1  20 rr rr     		JSR SSSTOUCH
+000436r 1  E8           		INX
+000437r 1  D0 F6        		BNE @loop
+000439r 1  60           @fini:	RTS
+00043Ar 1               
+00043Ar 1               
+00043Ar 1               ;*********************************************************************
+00043Ar 1               ; Software Sprite Stack UPDATE PENDING FRAME BUFFER WITH SPRITES
+00043Ar 1               ;
+00043Ar 1               ; This is part of the SSSFLIP operation and is NOT expected to be
+00043Ar 1               ; called by user programs.
+00043Ar 1               ;
+00043Ar 1               SSSUPDATE:
+00043Ar 1  A2 00        		LDX #0
+00043Cr 1  86 90        		STX sssNUM
+00043Er 1               @do:
+00043Er 1  E4 B7        		CPX SPRITES
+000440r 1  90 01        		BCC @cc
+000442r 1  60           		RTS
+000443r 1  BD rr rr     @cc:	LDA SPRITEDEF,X
+000446r 1               
+000446r 1               	.ifdef SPRITEDEF4	; repeating sprite?
+000446r 1               		AND #SPRITEDEF4
+000446r 1               		BEQ @own
+000446r 1               		LDA SPRITEZ-1,X
+000446r 1               		STA SPRITEZ,X	; copy Z-flags for display & results
+000446r 1               		JMP @matrix
+000446r 1               	.else
+000446r 1  0A           		ASL
+000447r 1  90 50        		BCC @redraw		; sprite is disabled
+000449r 1  BD rr rr     		LDA SPRITEX,X
+00044Cr 1  F0 4B        		BEQ @redraw		; 0 = outside left border visible range
+00044Er 1  CD 98 02     		CMP SSSCLIPX
+000451r 1  B0 46        		BCS @redraw		; >= outside right border visible range
+000453r 1  BD rr rr     		LDA SPRITEY,X
+000456r 1  F0 41        		BEQ @redraw		; 0 = outside top border visible range
+000458r 1  CD 99 02     		CMP SSSCLIPY
+00045Br 1  B0 3C        		BCS @redraw		; >= outside bottom border visible range
+00045Dr 1               	.endif
+00045Dr 1               
+00045Dr 1                       ; preset sprite image buffer:
+00045Dr 1               		; VECTOR1 = pointer to top-left within sprite matrix
+00045Dr 1               		; VECTOR2&3 = pointer to adjacent chars, as necessary
+00045Dr 1               @own:	;
+00045Dr 1  20 rr rr     		JSR SSSUSE
+000460r 1  BD rr rr     		LDA SPRITEBUFH,X
+000463r 1  85 FA        		STA VECTOR1+1
+000465r 1  85 FC        		STA VECTOR2+1
+000467r 1               
+000467r 1               	.ifdef SPRITEWIDE
+000467r 1  85 FE        		STA VECTOR3+1
+000469r 1               	.endif
+000469r 1               
+000469r 1  BD rr rr     		LDA SPRITEBUFL,X
+00046Cr 1  85 F9        		STA VECTOR1
+00046Er 1  18           		CLC
+00046Fr 1  65 95        		ADC sssNEXT
+000471r 1  90 04        		BCC @cc1
+000473r 1  E6 FC        		INC VECTOR2+1
+000475r 1               
+000475r 1               	.ifdef SPRITEWIDE
+000475r 1  E6 FE        		INC VECTOR3+1
+000477r 1               	.endif
+000477r 1               
+000477r 1  85 FB        @cc1:	STA VECTOR2
+000479r 1               
+000479r 1               	.ifdef SPRITEWIDE
+000479r 1  18           		CLC
+00047Ar 1  65 95        		ADC sssNEXT
+00047Cr 1  90 02        		BCC @cc2
+00047Er 1  E6 FE        		INC VECTOR3+1
+000480r 1  85 FD        @cc2:	STA VECTOR3
+000482r 1               	.endif
+000482r 1               
+000482r 1               	.ifdef SPRITEDEF5
+000482r 1               		LDY #$11		; ORA opcode
+000482r 1               		LDA SPRITEDEF,X
+000482r 1               		AND #SPRITEDEF5	; ghost image?
+000482r 1               		BEQ @bit
+000482r 1               		LDY #$51		; EOR opcode
+000482r 1               @bit:	TYA
+000482r 1               		STA @OP1
+000482r 1               		STA @OP2
+000482r 1               		EOR #$40		; swap opcode
+000482r 1               		STA @OP3
+000482r 1               	.endif
+000482r 1               
+000482r 1                       ; branch on make control flags
+000482r 1  BD rr rr     		LDA SPRITEZ,X
+000485r 1  0A           		ASL
+000486r 1  48           		PHA				; ++
+000487r 1  90 03        		BCC @copy		; $80 - (re)make buffered image
+000489r 1  20 rr rr     		JSR @Make
+00048Cr 1  68           @copy:	PLA				; --
+00048Dr 1  0A           		ASL
+00048Er 1  90 03        		BCC @matrix		; $40 - copy buffered image
+000490r 1  20 rr rr     		JSR @Copy
+000493r 1               @matrix:
+000493r 1  20 rr rr     		JSR @Display	; display sprite matrix
+000496r 1  4C rr rr     		JMP @loop
+000499r 1               @redraw:
+000499r 1  BD rr rr     		LDA SPRITEZ,X
+00049Cr 1  29 03        		AND #%11
+00049Er 1  09 F0        		ORA #%11110000	; make + copy/merge + null bg + clipped fg
+0004A0r 1  9D rr rr     		STA SPRITEZ,X
+0004A3r 1               @loop:
+0004A3r 1  E6 90        		INC sssNUM
+0004A5r 1  A6 90        		LDX sssNUM
+0004A7r 1  4C rr rr     		JMP @do
+0004AAr 1               		;
+0004AAr 1               		; INIT PHASE
+0004AAr 1               		; ----------
+0004AAr 1               		; (re)make this sprite's image buffer
+0004AAr 1               @Make:	;
+0004AAr 1  BD rr rr     		LDA SPRITEH,X
+0004ADr 1  85 9F        		STA sssXFER		; sprite image raster count
+0004AFr 1  BD rr rr     		LDA SPRITEY,X
+0004B2r 1  29 07        		AND #$07
+0004B4r 1  18           		CLC
+0004B5r 1  65 9F        		ADC sssXFER
+0004B7r 1  85 98        		STA sssDY       ; 1st raster below image
+0004B9r 1               		;
+0004B9r 1               		; VECTORBG = pointer to your compact source image
+0004B9r 1  BD rr rr     		LDA SPRITEIMGL,X
+0004BCr 1  85 01        		STA VECTORBG
+0004BEr 1  BD rr rr     		LDA SPRITEIMGH,X
+0004C1r 1  85 02        		STA VECTORBG+1
+0004C3r 1  A5 95        		LDA sssNEXT
+0004C5r 1  85 9B        		STA sssLINENUM  ; this many raster lines to copy
+0004C7r 1  C5 98        		CMP sssDY
+0004C9r 1  B0 0F        		BCS @Mloop		; fits within height of sprite
+0004CBr 1  A5 98        		LDA sssDY
+0004CDr 1  38           		SEC
+0004CEr 1  E5 9B        		SBC sssLINENUM
+0004D0r 1  8D 0C 03     		STA ACOPY		; compute how many rasters to clip
+0004D3r 1  A5 9F        		LDA sssXFER
+0004D5r 1  ED 0C 03     		SBC ACOPY
+0004D8r 1  85 9F        		STA sssXFER		; clip image within sprite height
+0004DAr 1               @Mloop:
+0004DAr 1  A9 00        		LDA #$00		; erase raster registers
+0004DCr 1  85 9C        		STA sssROR1
+0004DEr 1  85 9D        		STA sssROR2
+0004E0r 1               
+0004E0r 1               	.ifdef SPRITEWIDE
+0004E0r 1  85 9E        		STA sssROR3
+0004E2r 1               	.endif
+0004E2r 1               
+0004E2r 1  C6 9B        		DEC sssLINENUM
+0004E4r 1  A4 9B        		LDY sssLINENUM
+0004E6r 1  A5 9F        		LDA sssXFER
+0004E8r 1  F0 39        		BEQ @Mcopy		; no more rasters to copy - zero them
+0004EAr 1  C4 98        		CPY sssDY
+0004ECr 1  B0 35        		BCS @Mcopy		; below sprite image - zero this raster
+0004EEr 1               @Mxfer:
+0004EEr 1  C6 9F        		DEC sssXFER		; copying sprite image rasters
+0004F0r 1  A4 9F        		LDY sssXFER
+0004F2r 1  B1 01        		LDA (VECTORBG),Y
+0004F4r 1  85 9C        		STA sssROR1
+0004F6r 1  BD rr rr     		LDA SPRITEDEF,X
+0004F9r 1  29 02        		AND #%00000010
+0004FBr 1  F0 13        		BEQ @Mxfer2		; 16w ?
+0004FDr 1  A0 08        		LDY #$08
+0004FFr 1  BD rr rr     		LDA SPRITEDEF,X
+000502r 1  4A           		LSR
+000503r 1  90 02        		BCC @Monly8 	; 16h ?
+000505r 1  A0 10        		LDY #$10
+000507r 1               @Monly8:
+000507r 1  98           		TYA
+000508r 1  18           		CLC
+000509r 1  65 9F        		ADC sssXFER
+00050Br 1  A8           		TAY
+00050Cr 1  B1 01        		LDA (VECTORBG),Y
+00050Er 1  85 9D        		STA sssROR2     ; load adjacent register
+000510r 1               @Mxfer2:
+000510r 1  BD rr rr     		LDA SPRITEX,X
+000513r 1  29 07        		AND #$07
+000515r 1  F0 0C        		BEQ @Mcopy
+000517r 1  85 97        		STA sssDX
+000519r 1  46 9C        @Mx2:	LSR sssROR1
+00051Br 1  66 9D        		ROR sssROR2		; shift into image overflow register #1
+00051Dr 1               
+00051Dr 1               	.ifdef SPRITEWIDE
+00051Dr 1  66 9E        		ROR sssROR3		; shift into image overflow register #2
+00051Fr 1               	.endif
+00051Fr 1               
+00051Fr 1  C6 97        		DEC sssDX
+000521r 1  D0 F6        		BNE @Mx2
+000523r 1               @Mcopy:
+000523r 1  A2 01        		LDX #$01
+000525r 1  A4 9B        		LDY sssLINENUM
+000527r 1  A5 9C        		LDA sssROR1
+000529r 1  91 F9        		STA (VECTOR1),Y
+00052Br 1  E4 92        		CPX sssX
+00052Dr 1  F0 0D        		BEQ @Mnext
+00052Fr 1  A5 9D        		LDA sssROR2		; write image overflow register #1
+000531r 1  91 FB        		STA (VECTOR2),Y
+000533r 1               
+000533r 1               	.ifdef SPRITEWIDE
+000533r 1  E8           		INX
+000534r 1  E4 92        		CPX sssX
+000536r 1  F0 04        		BEQ @Mnext
+000538r 1  A5 9E        		LDA sssROR3		; write image overflow register #2
+00053Ar 1  91 FD        		STA (VECTOR3),Y
+00053Cr 1               	.endif
+00053Cr 1               
+00053Cr 1               @Mnext:
+00053Cr 1  A6 90                LDX sssNUM
+00053Er 1  A5 9B        		LDA sssLINENUM
+000540r 1  F0 03        		BEQ @Mfini
+000542r 1  4C rr rr     		JMP @Mloop
+000545r 1  60           @Mfini:	RTS
+000546r 1               		;
+000546r 1               		; PHASE II
+000546r 1               		; --------
+000546r 1               		; copy/merge buffered image with background into
+000546r 1               		; sprite character matrix
+000546r 1               @Copy:	;
+000546r 1  BD rr rr             LDA SPRITEZ,X
+000549r 1  29 03                AND #%11
+00054Br 1  49 01        		EOR #%1			; flip to other character set
+00054Dr 1  9D rr rr     		STA SPRITEZ,X
+000550r 1  29 01        		AND #%1
+000552r 1  D0 0C        		BNE @Cfb2
+000554r 1  BD rr rr     		LDA SPRITEC1L,X
+000557r 1  85 F7        		STA VECTORFG
+000559r 1  BD rr rr     		LDA SPRITEC1H,X
+00055Cr 1  85 F8        		STA VECTORFG+1
+00055Er 1  D0 0A        		BNE @Ccopy
+000560r 1  BD rr rr     @Cfb2:	LDA SPRITEC2L,X
+000563r 1  85 F7        		STA VECTORFG
+000565r 1  BD rr rr     		LDA SPRITEC2H,X
+000568r 1  85 F8        		STA VECTORFG+1
+00056Ar 1               @Ccopy:
+00056Ar 1  BD rr rr     		LDA SPRITEX,X
+00056Dr 1  85 97        		STA sssDX
+00056Fr 1  A5 95        		LDA sssNEXT
+000571r 1  85 9A        		STA sssLINE
+000573r 1  A0 00        		LDY #0
+000575r 1  84 96        		STY sssCHAR
+000577r 1  84 9B        		STY sssLINENUM
+000579r 1  8C 0C 03     		STY ACOPY
+00057Cr 1               @Cdocol:
+00057Cr 1  A6 90        		LDX sssNUM
+00057Er 1  BD rr rr     		LDA SPRITEY,X
+000581r 1  85 98        		STA sssDY
+000583r 1               @Cbgimage:
+000583r 1  A6 90        		LDX sssNUM
+000585r 1  BD rr rr     		LDA SPRITEZ,X
+000588r 1  29 02        		AND #%10
+00058Ar 1  D0 0B        		BNE @Cjmp		; fast copy?
+00058Cr 1  A6 97        		LDX sssDX
+00058Er 1  A4 98        		LDY sssDY
+000590r 1  20 rr rr     		JSR SSSREAD
+000593r 1  C9 A0        		CMP #SSSNULL
+000595r 1  D0 03        		BNE @Cmore
+000597r 1  4C rr rr     @Cjmp:	JMP @Ccpfast
+00059Ar 1               @Cmore:
+00059Ar 1  A6 90        		LDX sssNUM
+00059Cr 1  AD 87 02     		LDA CRSRCOLOR
+00059Fr 1  29 10        		AND #%10000
+0005A1r 1  F0 0B        		BEQ @Ccont		; static cell?
+0005A3r 1  BD rr rr     		LDA SPRITEZ,X
+0005A6r 1  09 10        		ORA #%10000		; flag that sprite's foreground is clipped
+0005A8r 1  9D rr rr             STA SPRITEZ,X
+0005ABr 1  4C rr rr     		JMP @Cnextrow	; don't bother merging with a background
+0005AEr 1               @Ccont:
+0005AEr 1               
+0005AEr 1               	.ifdef SPRITEDEF4
+0005AEr 1               		LDA SPRITEDEF,X
+0005AEr 1               		AND #SPRITEDEF4
+0005AEr 1               		BNE @Cjmp
+0005AEr 1               	.endif
+0005AEr 1               
+0005AEr 1  A5 CE        		LDA CRSRCHAR
+0005B0r 1  20 rr rr     		JSR SSSIMAGE
+0005B3r 1  86 01        		STX VECTORBG
+0005B5r 1  84 02        		STY VECTORBG+1
+0005B7r 1  A2 00        		LDX #0
+0005B9r 1  86 9F        		STX sssXFER
+0005BBr 1  E6 96        		INC sssCHAR     ; flag that there is something behind this sprite
+0005BDr 1               
+0005BDr 1               	.ifdef SPRITEDEF6
+0005BDr 1               		LDY sssNUM
+0005BDr 1               		LDA SPRITEZ,Y
+0005BDr 1               		AND #%1000
+0005BDr 1               		BNE @Ccploop	; already a collision?
+0005BDr 1               		LDA SPRITEDEF,Y
+0005BDr 1               		AND #SPRITEDEF6
+0005BDr 1               		BNE @Ccploopx	; collision detection enabled?
+0005BDr 1               	.endif
+0005BDr 1               
+0005BDr 1               @Ccploop:
+0005BDr 1  A4 9F        		LDY sssXFER		; from ...
+0005BFr 1  B1 01        		LDA (VECTORBG),Y
+0005C1r 1  A4 9B        		LDY sssLINENUM	; to ...
+0005C3r 1  11 F9        @OP1:	ORA (VECTOR1),Y	; opcode modification #1: ORA / EOR
+0005C5r 1  91 F7        		STA (VECTORFG),Y
+0005C7r 1               @Ccpnxt:
+0005C7r 1  E6 9B        		INC sssLINENUM
+0005C9r 1  E6 9F        		INC sssXFER
+0005CBr 1  E8           		INX
+0005CCr 1  E0 08        		CPX #8
+0005CEr 1  D0 ED        		BNE @Ccploop
+0005D0r 1  F0 0E        		BEQ @Cnextrow
+0005D2r 1               
+0005D2r 1               	.ifdef SPRITEDEF6
+0005D2r 1               @Ccploopx:
+0005D2r 1               		LDY sssXFER		; from ...
+0005D2r 1               		LDA (VECTORBG),Y
+0005D2r 1               		PHA				;++
+0005D2r 1               		LDY sssLINENUM	; to ...
+0005D2r 1               @OP2:	ORA (VECTOR1),Y	; opcode modification #2: ORA / EOR
+0005D2r 1               		STA (VECTORFG),Y
+0005D2r 1               		PLA				;--
+0005D2r 1               @OP3:	EOR (VECTOR1),Y	; opcode modification #3: ORA / EOR
+0005D2r 1               		CMP (VECTORFG),Y
+0005D2r 1               		BEQ @Cnohit		; any overlapping pixel(s)?
+0005D2r 1               		LDY sssNUM
+0005D2r 1               		LDA sssDX
+0005D2r 1               		STA SPRITECX,Y	; save X sprite coord of what was hit
+0005D2r 1               		LDA sssDY
+0005D2r 1               		STA SPRITECY,Y	; save Y sprite coord of what was hit
+0005D2r 1               		LDA CRSRCHAR	; save character code of what was hit
+0005D2r 1               		STA SPRITEBACK,Y
+0005D2r 1               		LDA SPRITEZ,Y
+0005D2r 1               		ORA #%1000		; sprite-pixel collision with non-static cell
+0005D2r 1                       STA SPRITEZ,Y
+0005D2r 1               		BNE @Ccpnxt		; resume normal copy/merge operation
+0005D2r 1               @Cnohit:
+0005D2r 1               		INC sssLINENUM
+0005D2r 1               		INC sssXFER
+0005D2r 1               		INX
+0005D2r 1               		CPX #8
+0005D2r 1               		BNE @Ccploopx
+0005D2r 1               		BEQ @Cnextrow
+0005D2r 1               	.endif
+0005D2r 1               
+0005D2r 1               		; faster copy, because there is no backgound to merge with ...
+0005D2r 1               @Ccpfast:
+0005D2r 1  A2 08        		LDX #8
+0005D4r 1  A4 9B        		LDY sssLINENUM
+0005D6r 1               @Ccploop2:
+0005D6r 1  B1 F9        		LDA (VECTOR1),Y
+0005D8r 1  91 F7        		STA (VECTORFG),Y
+0005DAr 1  C8           		INY
+0005DBr 1  CA           		DEX
+0005DCr 1  D0 F8        		BNE @Ccploop2
+0005DEr 1  84 9B        		STY sssLINENUM
+0005E0r 1               @Cnextrow:
+0005E0r 1  A5 98        		LDA sssDY
+0005E2r 1  18           		CLC
+0005E3r 1  69 08        		ADC #8
+0005E5r 1  85 98        		STA sssDY
+0005E7r 1  A4 9B        		LDY sssLINENUM
+0005E9r 1  C4 9A        		CPY sssLINE
+0005EBr 1  F0 03        		BEQ @Cnextcol
+0005EDr 1  4C rr rr     		JMP @Cbgimage
+0005F0r 1               @Cnextcol:
+0005F0r 1  AD 0C 03     		LDA ACOPY
+0005F3r 1  18           		CLC
+0005F4r 1  65 95        		ADC sssNEXT
+0005F6r 1  8D 0C 03     		STA ACOPY
+0005F9r 1  85 9B        		STA sssLINENUM
+0005FBr 1  A5 9A                LDA sssLINE
+0005FDr 1  18                   CLC
+0005FEr 1  65 95                ADC sssNEXT
+000600r 1  85 9A        		STA sssLINE
+000602r 1  A5 97        		LDA sssDX
+000604r 1  18           		CLC
+000605r 1  69 08        		ADC #$08
+000607r 1  85 97        		STA sssDX
+000609r 1  C6 92        		DEC sssX
+00060Br 1  F0 03        		BEQ @Cdone
+00060Dr 1  4C rr rr     		JMP @Cdocol
+000610r 1               @Cdone:
+000610r 1  A5 96        		LDA sssCHAR
+000612r 1  D0 0A        		BNE @Cfini
+000614r 1  A6 90        		LDX sssNUM		; all null background, if no new changes occur
+000616r 1  BD rr rr     		LDA SPRITEZ,X	; don't do a merge on next flip either
+000619r 1  09 20        		ORA #$20        ; enable this sprite to be re-used as-is
+00061Br 1  9D rr rr             STA SPRITEZ,X   ; on next frame flip
+00061Er 1  60           @Cfini:	RTS
+00061Fr 1               		;
+00061Fr 1               		; PHASE III
+00061Fr 1               		; ---------
+00061Fr 1               		; display sprite character matrix
+00061Fr 1               		; by row, then by column
+00061Fr 1               @Display:
+00061Fr 1  A6 90        		LDX sssNUM
+000621r 1               
+000621r 1               	.ifdef SPRITEDEF4
+000621r 1               		LDA SPRITEDEF,X
+000621r 1               		ASL
+000621r 1               		BCC @Cfini		; sprite is disabled
+000621r 1               	.endif
+000621r 1               
+000621r 1  20 rr rr     		JSR SSSUSE
+000624r 1  C6 93        		DEC sssY
+000626r 1  C6 92        		DEC sssX
+000628r 1  BD rr rr     		LDA SPRITEX,X
+00062Br 1  85 97        		STA sssDX
+00062Dr 1  BD rr rr     		LDA SPRITECOL,X
+000630r 1  8D 86 02     		STA COLORCODE
+000633r 1               
+000633r 1               	.ifdef SPRITEDEF5
+000633r 1               		LDA SPRITEDEF,X
+000633r 1               		AND #SPRITEDEF5	; ghost mode?
+000633r 1               		BEQ @Dok
+000633r 1               		LDA COLORCODE
+000633r 1               		ORA #$80
+000633r 1               		STA COLORCODE	; flag to keep PLAYFIELD colored cells
+000633r 1               	.endif
+000633r 1               
+000633r 1  BD rr rr     @Dok:	LDA SPRITEZ,X
+000636r 1  29 01        		AND #%1
+000638r 1  D0 0A        		BNE @Dfb2		; which character set to use?
+00063Ar 1  BD rr rr     		LDA SPRITEC1L,X
+00063Dr 1  85 F7        		STA VECTORFG
+00063Fr 1  BD rr rr     		LDA SPRITEC1H,X
+000642r 1  D0 08        		BNE @Dchar
+000644r 1  BD rr rr     @Dfb2:	LDA SPRITEC2L,X
+000647r 1  85 F7        		STA VECTORFG
+000649r 1  BD rr rr     		LDA SPRITEC2H,X
+00064Cr 1  85 F8        @Dchar:	STA VECTORFG+1
+00064Er 1  38           		SEC
+00064Fr 1  E9 1C        		SBC #$1C		; starting page of custom chars
+000651r 1  0A           		ASL
+000652r 1  0A           		ASL
+000653r 1  0A           		ASL
+000654r 1  0A           		ASL
+000655r 1  0A           		ASL				; x32
+000656r 1  85 96        		STA sssCHAR
+000658r 1  A5 F7        		LDA VECTORFG
+00065Ar 1  4A           		LSR
+00065Br 1  4A           		LSR
+00065Cr 1  4A           		LSR				; /8
+00065Dr 1  65 96        		ADC sssCHAR
+00065Fr 1  85 96        		STA sssCHAR		; start with this custom character
+000661r 1               @Dcol:
+000661r 1  A5 93        		LDA sssY
+000663r 1  85 9B        		STA sssLINENUM
+000665r 1  A6 90        		LDX sssNUM
+000667r 1  BD rr rr     		LDA SPRITEY,X
+00066Ar 1  85 98        		STA sssDY		; custom character row (0, 1?, 2?)
+00066Cr 1               @Drow:
+00066Cr 1  A5 96        		LDA sssCHAR
+00066Er 1  A6 97        		LDX sssDX
+000670r 1  A4 98        		LDY sssDY
+000672r 1  20 rr rr     		JSR SSSWRITE	; display it
+000675r 1               @Dskip:
+000675r 1  E6 96        		INC sssCHAR		; account for it, even if it is not displayed
+000677r 1  A5 9B        		LDA sssLINENUM
+000679r 1  F0 0C        		BEQ @Dnrow
+00067Br 1  C6 9B        		DEC sssLINENUM
+00067Dr 1  A5 98        		LDA sssDY
+00067Fr 1  18           		CLC
+000680r 1  69 08        		ADC #8
+000682r 1  85 98        		STA sssDY		; next Y-pixel
+000684r 1  4C rr rr     		JMP @Drow
+000687r 1               @Dnrow:
+000687r 1  A5 97        		LDA sssDX
+000689r 1  18           		CLC
+00068Ar 1  69 08        		ADC #8
+00068Cr 1  85 97        		STA sssDX
+00068Er 1  A5 92        		LDA sssX
+000690r 1  F0 05        		BEQ @Dncol
+000692r 1  C6 92        		DEC sssX
+000694r 1  4C rr rr     		JMP @Dcol
+000697r 1               @Dncol:
+000697r 1  60           		RTS
+000698r 1               
+000698r 1               
+000698r 1               ;*********************************************************************
+000698r 1               ; Software Sprite Stack GET IMAGE ADDRESS FROM A CHARACTER
+000698r 1               ;
+000698r 1               ; This is used by SSSUPDATE and NOT normally called by user programs.
+000698r 1               ;
+000698r 1               ; Pass A with the character code.
+000698r 1               ; returns X/Y as a pointer to its image source.
+000698r 1               ;
+000698r 1               SSSIMAGE:
+000698r 1  A8           		TAY
+000699r 1  0A           		ASL
+00069Ar 1  0A           		ASL
+00069Br 1  0A           		ASL				; x8
+00069Cr 1  AA           		TAX				; save image low byte
+00069Dr 1  98           		TYA
+00069Er 1  2A           		ROL				; set carry bit
+00069Fr 1  A0 00        		LDY #$00		; point to custom chars
+0006A1r 1  90 01        		BCC @cont		; is character reversed?
+0006A3r 1  C8           		INY
+0006A4r 1  2A           @cont:	ROL
+0006A5r 1  2A           		ROL
+0006A6r 1  2A           		ROL
+0006A7r 1  29 03        		AND #%00000011
+0006A9r 1  19 rr rr     		ORA @vic,Y		; prepend page pointer
+0006ACr 1  A8           		TAY				; save image high byte
+0006ADr 1  60           		RTS
+0006AEr 1               		; VIC custom or ROM characters
+0006AEr 1  1C 80        @vic:	.byte	$1C, $80
+0006B0r 1               
+0006B0r 1               
+0006B0r 1               ;*********************************************************************
+0006B0r 1               ; Software Sprite Stack READ FROM PENDING FRAME BUFFER
+0006B0r 1               ;
+0006B0r 1               ; This is used by SSSUPDATE and NOT normally called by user programs.
+0006B0r 1               ;
+0006B0r 1               ; Pass X/Y with a sprite pixel coordinate.
+0006B0r 1               ; CURSOR is re-plotted to this location.
+0006B0r 1               ; returns Accumulator with character code from PENDING frame buffer,
+0006B0r 1               ; or a SPACE if the coordinate is outside the screen borders.
+0006B0r 1               ; returns X/Y cell coordinates.
+0006B0r 1               ;
+0006B0r 1               SSSREAD:
+0006B0r 1  A9 A0        		LDA #SSSNULL	; default to an empty background
+0006B2r 1  E0 10        		CPX #$10
+0006B4r 1  90 4A        		BCC @fini		; hidden by left border
+0006B6r 1  EC 98 02     		CPX SSSCLIPX
+0006B9r 1  B0 45        		BCS @fini		; hidden by right border
+0006BBr 1  C0 10        		CPY #$10
+0006BDr 1  90 41        		BCC @fini		; above top border
+0006BFr 1  CC 99 02     		CPY SSSCLIPY
+0006C2r 1  B0 3C        		BCS @fini		; below bottom border
+0006C4r 1               		;
+0006C4r 1  AD 93 02     		LDA PENDING
+0006C7r 1  85 D2        		STA SCRNLINE+1
+0006C9r 1  A9 16        		LDA #>PLAYCOLOR
+0006CBr 1  85 F4        		STA COLORLINE+1
+0006CDr 1               		;
+0006CDr 1  98           		TYA
+0006CEr 1  38           		SEC
+0006CFr 1  E9 10        		SBC #$10
+0006D1r 1  4A           		LSR
+0006D2r 1  4A           		LSR
+0006D3r 1  4A           		LSR				; /8
+0006D4r 1  A8           		TAY
+0006D5r 1  84 D6        		STY CRSRROW
+0006D7r 1               		;
+0006D7r 1  8A           		TXA
+0006D8r 1  38           		SEC
+0006D9r 1  E9 10        		SBC #$10
+0006DBr 1  4A           		LSR
+0006DCr 1  4A           		LSR
+0006DDr 1  4A           		LSR				; /8
+0006DEr 1  85 D3        		STA CRSRCOL
+0006E0r 1               		;
+0006E0r 1  98           @ok:	TYA
+0006E1r 1  0A           		ASL
+0006E2r 1  A8           		TAY
+0006E3r 1  B9 rr rr     		LDA sss+1,Y
+0006E6r 1  F0 04        		BEQ @top
+0006E8r 1  E6 D2        		INC SCRNLINE+1
+0006EAr 1  E6 F4        		INC COLORLINE+1
+0006ECr 1  B9 rr rr     @top:	LDA sss,Y
+0006EFr 1  85 D1        		STA SCRNLINE
+0006F1r 1  85 F3        		STA COLORLINE
+0006F3r 1  A4 D3        		LDY CRSRCOL
+0006F5r 1  B1 F3        		LDA (COLORLINE),Y	; read from pending color buffer
+0006F7r 1  8D 87 02     		STA CRSRCOLOR
+0006FAr 1  B1 D1        		LDA (SCRNLINE),Y	; read from pending video buffer
+0006FCr 1  85 CE        		STA CRSRCHAR
+0006FEr 1  A4 D6        		LDY CRSRROW
+000700r 1  60           @fini:	RTS
+000701r 1               
+000701r 1               
+000701r 1               ;*********************************************************************
+000701r 1               ; Software Sprite Stack WRITE TO PENDING FRAME BUFFER
+000701r 1               ;
+000701r 1               ; This is used by SSSUPDATE and NOT normally called by user programs.
+000701r 1               ;
+000701r 1               ; Pass X/Y with a sprite pixel coordinate.
+000701r 1               ; Pass A with SPRITE character code to write to PENDING screen buffer.
+000701r 1               ; COLORCODE is used to fill same space with that value.
+000701r 1               ;
+000701r 1               ; Write does not occur if X/Y lie outside the screen borders.
+000701r 1               ;
+000701r 1               SSSWRITE:
+000701r 1  E0 10        		CPX #$10
+000703r 1  90 26        		BCC @fini		; hidden by left border
+000705r 1  EC 98 02     		CPX SSSCLIPX
+000708r 1  B0 21        		BCS @fini		; hidden by right border
+00070Ar 1  C0 10        		CPY #$10
+00070Cr 1  90 1D        		BCC @fini		; above top border
+00070Er 1  CC 99 02     		CPY SSSCLIPY
+000711r 1  B0 18        		BCS @fini		; below bottom border
+000713r 1  48           		PHA				;++
+000714r 1  20 rr rr     		JSR SSSPEEKXY
+000717r 1  AD 87 02     		LDA CRSRCOLOR
+00071Ar 1  29 10        		AND #$10		; static cell?
+00071Cr 1  F0 02        		BEQ @ok
+00071Er 1  68           		PLA				; yes, don't overwrite it!
+00071Fr 1  60           		RTS
+000720r 1               		;
+000720r 1  A6 D3        @ok:	LDX CRSRCOL
+000722r 1  A4 D6        		LDY CRSRROW
+000724r 1  20 rr rr     		JSR SSSPLOTS
+000727r 1  68           		PLA				;--
+000728r 1  20 rr rr     		JSR SSSPOKE
+00072Br 1  60           @fini:	RTS
+00072Cr 1               
+00072Cr 1               
+00072Cr 1               ;*********************************************************************
+00072Cr 1               ; Software Sprite Stack PROTECTED WRITE TO PENDING FRAME BUFFER
+00072Cr 1               ;
+00072Cr 1               ; Pass X/Y with a screen cell coordinate.
+00072Cr 1               ; Pass A with character code to write to PENDING screen buffer.
+00072Cr 1               ; COLORCODE is used to fill same space with that value.
+00072Cr 1               ;
+00072Cr 1               SSSCELL:
+00072Cr 1  48           		PHA				;++
+00072Dr 1  A5 BF        		LDA NEWDIRT
+00072Fr 1  85 01        		STA $01
+000731r 1  A9 10        		LDA #$10
+000733r 1  85 BF        		STA NEWDIRT
+000735r 1  20 rr rr     		JSR SSSPLOTS
+000738r 1  68           		PLA				;--
+000739r 1  20 rr rr     		JSR SSSPOKE
+00073Cr 1  A5 01        		LDA $01
+00073Er 1  85 BF        		STA NEWDIRT
+000740r 1  60           		RTS
+000741r 1               
+000741r 1               
